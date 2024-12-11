@@ -11,6 +11,7 @@
 </p>
 
 
+--------------------------------------------
 # 2024-12-11
 
 fuck!fuck!fuck!fuck! shit!!!shit!!!shit!!!shit!!!   Cockroach actually broadcasts commercial information directly in the connection
@@ -23,6 +24,13 @@ This should be completely resisted! But I don't have the energy to fork Cockroac
 
 I will completely remove support for Cockroach and switch to PostgreSQL and Mariadb !!!!!!!!!!!
 
+---------------------------------------
+
+##  If continuous maintenance is required, sufficient testing is needed. If you happen to have time to read this passage, then thank you very much for your testing and use
+
+##  As I am not a full-time maintainer, my submission interval may be longer. Please understand, but it is gratifying that I use PostgreSQL in my work, which carries hundreds of thousands of traffic per day, making it more robust
+
+----------------------------------------
 
 
 
