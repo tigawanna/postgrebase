@@ -10,6 +10,23 @@
     <a href="https://pkg.go.dev/github.com/pocketbase/pocketbase" target="_blank" rel="noopener"><img src="https://godoc.org/github.com/ganigeorgiev/fexpr?status.svg" alt="Go package documentation" /></a>
 </p>
 
+
+# 2024-12-11
+
+fuck!fuck!fuck!fuck! shit!!!shit!!!shit!!!shit!!!   Cockroach actually broadcasts commercial information directly in the connection
+
+https://github.com/cockroachdb/cockroach/issues/133050
+
+NOTICE: No license is installed. Throttling will begin after 2024-10-28 17:23:54 +0000 UTC unless a license is installed before then.
+
+This should be completely resisted! But I don't have the energy to fork Cockroachdb anymore, even though it's easy to remove it
+
+I will completely remove support for Cockroach and switch to PostgreSQL and Mariadb !!!!!!!!!!!
+
+
+
+
+
 [PocketBase](https://pocketbase.io) is an open source Go backend, consisting of:
 
 The author of PB is really excellent, and PB is a great work.
