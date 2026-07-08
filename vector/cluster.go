@@ -171,11 +171,13 @@ func NewCoordinator(manager *Manager, config CoordinatorConfig) *Coordinator {
 
 	// seed self state
 	c.states[c.selfAddr] = &PeerState{
-		Address:  c.selfAddr,
-		NodeID:   c.nodeID,
-		Alive:    true,
-		IsSelf:   true,
-		LastSeen: time.Now().UTC(),
+		Address:      c.selfAddr,
+		NodeID:       c.nodeID,
+		Alive:        true,
+		IsSelf:       true,
+		Term:         term,
+		LastLogIndex: lastLogIndex,
+		LastSeen:     time.Now().UTC(),
 	}
 	for _, peer := range c.peers {
 		if _, ok := c.states[peer]; !ok {
@@ -434,9 +436,14 @@ func (c *Coordinator) ReceiveHeartbeat(hb Heartbeat) HeartbeatReply {
 		state.LastSeen = time.Now().UTC()
 
 		// learn about new members announced by the peer
-		if !containsString(c.peers, hb.Address) && hb.Address != c.selfAddr {
-			c.peers = append(c.peers, hb.Address)
+		c.addPeerLocked(hb.Address, hb.LastLogIndex)
+	}
+
+	for _, member := range hb.Members {
+		if member == "" || member == c.selfAddr {
+			continue
 		}
+		c.addPeerLocked(member, 0)
 	}
 
 	if hb.Term > c.term {
@@ -841,16 +848,8 @@ func (c *Coordinator) AddPeer(peer string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	for _, p := range c.peers {
-		if p == peer {
-			return
-		}
-	}
-
-	c.peers = append(c.peers, peer)
-	if c.peerNextIndex != nil {
-		c.peerNextIndex[peer] = c.lastLogIndex + 1
-	}
+	c.addPeerLocked(peer, 0)
+	c.recomputeLeaderLocked()
 }
 
 // AdvanceIndexLocally manually increments the cluster logs indices on local save.
@@ -862,6 +861,10 @@ func (c *Coordinator) AdvanceIndexLocally() {
 	c.lastLogIndex++
 	c.appliedLogIndex++
 	c.mu.Unlock()
+
+	if c.manager != nil {
+		_ = c.manager.Persist()
+	}
 }
 
 // InstallSnapshot is invoked on a follower to replace its physical SQLite state machine.
@@ -870,17 +873,29 @@ func (c *Coordinator) InstallSnapshot(replacePath string, lastLogIndex uint64, a
 		return errors.New("cannot install snapshot: app not configured")
 	}
 
+	c.mu.Lock()
+	currentApplied := c.appliedLogIndex
+	currentTerm := c.term
+	if appliedLogIndex < currentApplied {
+		c.mu.Unlock()
+		return fmt.Errorf("stale snapshot rejected: incoming applied index %d is behind current %d", appliedLogIndex, currentApplied)
+	}
+	if appliedLogIndex == currentApplied && term < currentTerm {
+		c.mu.Unlock()
+		return fmt.Errorf("stale snapshot rejected: incoming term %d is behind current %d", term, currentTerm)
+	}
+
 	// 1. Atomically replace database file using the app's database lifecycle hook
 	if err := c.app.ReloadDataDBWithReplacement(replacePath); err != nil {
+		c.mu.Unlock()
 		return fmt.Errorf("failed to reload database with snapshot: %w", err)
 	}
 
 	// 2. Synchronize coordinator log sequence watermarks
-	c.mu.Lock()
 	c.appliedLogIndex = appliedLogIndex
 	c.lastLogIndex = lastLogIndex
 	c.term = term
-	c.logs = nil // Clear local logs as we are now fully aligned with snapshot
+	c.logs = make([]ReplicatedOperation, 0) // Clear local logs as we are now fully aligned with snapshot
 	c.mu.Unlock()
 
 	if c.manager != nil {
@@ -963,6 +978,40 @@ func (c *Coordinator) isLeaderLocked() bool {
 
 func (c *Coordinator) leaderAddrLocked() string {
 	return c.leaderID
+}
+
+func (c *Coordinator) addPeerLocked(peer string, lastLogIndex uint64) {
+	if peer == "" || peer == c.selfAddr {
+		return
+	}
+
+	if !containsString(c.peers, peer) {
+		c.peers = append(c.peers, peer)
+		sort.Strings(c.peers)
+	}
+
+	state := c.states[peer]
+	if state == nil {
+		state = &PeerState{Address: peer}
+		c.states[peer] = state
+	}
+	if lastLogIndex > state.LastLogIndex {
+		state.LastLogIndex = lastLogIndex
+	}
+
+	if c.peerNextIndex != nil {
+		knownLastLogIndex := lastLogIndex
+		if knownLastLogIndex == 0 {
+			knownLastLogIndex = state.LastLogIndex
+		}
+		nextIndex := knownLastLogIndex + 1
+		if knownLastLogIndex == 0 {
+			nextIndex = 1
+		}
+		if current := c.peerNextIndex[peer]; current == 0 || nextIndex < current {
+			c.peerNextIndex[peer] = nextIndex
+		}
+	}
 }
 
 func (c *Coordinator) syncTopology() {

@@ -9,12 +9,12 @@ func init() {
 		sessionTable := `
 			CREATE TABLE IF NOT EXISTS {{_pb_agent_sessions_}} (
 				[[id]]           ` + agentIdType(driver) + ` NOT NULL PRIMARY KEY,
-				[[project_id]]   ` + agentTextType(driver) + ` NOT NULL,
-				[[name]]         ` + agentTextType(driver) + ` NOT NULL,
-				[[provider]]     ` + agentTextType(driver) + ` NOT NULL,
-				[[model]]        ` + agentTextType(driver) + ` NOT NULL,
+				[[project_id]]   ` + agentStringType(driver) + ` NOT NULL,
+				[[name]]         ` + agentStringType(driver) + ` NOT NULL,
+				[[provider]]     ` + agentStringType(driver) + ` NOT NULL,
+				[[model]]        ` + agentStringType(driver) + ` NOT NULL,
 				[[name_locked]]  ` + agentBoolType(driver) + ` NOT NULL DEFAULT ` + agentBoolDefault(driver) + `,
-				[[last_message]] ` + agentTextType(driver) + ` NOT NULL DEFAULT '',
+				[[last_message]] ` + agentLongTextType(driver) + ` NOT NULL,
 				[[created]]      ` + agentTsType(driver) + ` NOT NULL,
 				[[updated]]      ` + agentTsType(driver) + ` NOT NULL
 			);`
@@ -22,9 +22,9 @@ func init() {
 		messageTable := `
 			CREATE TABLE IF NOT EXISTS {{_pb_agent_messages_}} (
 				[[id]]         ` + agentIdType(driver) + ` NOT NULL PRIMARY KEY,
-				[[session_id]] ` + agentTextType(driver) + ` NOT NULL,
-				[[role]]       ` + agentTextType(driver) + ` NOT NULL,
-				[[content]]    ` + agentTextType(driver) + ` NOT NULL DEFAULT '',
+				[[session_id]] ` + agentStringType(driver) + ` NOT NULL,
+				[[role]]       ` + agentStringType(driver) + ` NOT NULL,
+				[[content]]    ` + agentLongTextType(driver) + ` NOT NULL,
 				[[images]]     ` + agentJsonType(driver) + `,
 				[[created]]    ` + agentTsType(driver) + ` NOT NULL,
 				[[updated]]    ` + agentTsType(driver) + ` NOT NULL
@@ -33,17 +33,17 @@ func init() {
 		auditTable := `
 			CREATE TABLE IF NOT EXISTS {{_pb_agent_audit_}} (
 				[[id]]             ` + agentIdType(driver) + ` NOT NULL PRIMARY KEY,
-				[[session_id]]     ` + agentTextType(driver) + ` NOT NULL,
-				[[project_id]]     ` + agentTextType(driver) + ` NOT NULL,
-				[[actor]]          ` + agentTextType(driver) + ` NOT NULL DEFAULT '',
-				[[tool]]           ` + agentTextType(driver) + ` NOT NULL,
-				[[category]]       ` + agentTextType(driver) + ` NOT NULL DEFAULT '',
-				[[risk]]           ` + agentTextType(driver) + ` NOT NULL DEFAULT '',
-				[[audit_category]] ` + agentTextType(driver) + ` NOT NULL DEFAULT '',
-				[[decision]]       ` + agentTextType(driver) + ` NOT NULL DEFAULT '',
-				[[reason]]         ` + agentTextType(driver) + ` NOT NULL DEFAULT '',
-				[[status]]         ` + agentTextType(driver) + ` NOT NULL DEFAULT '',
-				[[error_msg]]      ` + agentTextType(driver) + ` NOT NULL DEFAULT '',
+				[[session_id]]     ` + agentStringType(driver) + ` NOT NULL,
+				[[project_id]]     ` + agentStringType(driver) + ` NOT NULL,
+				[[actor]]          ` + agentStringType(driver) + ` NOT NULL DEFAULT '',
+				[[tool]]           ` + agentStringType(driver) + ` NOT NULL,
+				[[category]]       ` + agentStringType(driver) + ` NOT NULL DEFAULT '',
+				[[risk]]           ` + agentStringType(driver) + ` NOT NULL DEFAULT '',
+				[[audit_category]] ` + agentStringType(driver) + ` NOT NULL DEFAULT '',
+				[[decision]]       ` + agentStringType(driver) + ` NOT NULL DEFAULT '',
+				[[reason]]         ` + agentLongTextType(driver) + ` NOT NULL,
+				[[status]]         ` + agentStringType(driver) + ` NOT NULL DEFAULT '',
+				[[error_msg]]      ` + agentLongTextType(driver) + ` NOT NULL,
 				[[created]]        ` + agentTsType(driver) + ` NOT NULL,
 				[[updated]]        ` + agentTsType(driver) + ` NOT NULL
 			);`
@@ -52,23 +52,31 @@ func init() {
 		stmts = append(stmts,
 			`CREATE TABLE IF NOT EXISTS {{_pb_agent_project_configs_}} (
 				[[id]]                  `+agentIdType(driver)+` NOT NULL PRIMARY KEY,
-				[[project_id]]          `+agentTextType(driver)+` NOT NULL,
-				[[default_provider]]    `+agentTextType(driver)+` NOT NULL DEFAULT '',
-				[[default_model]]       `+agentTextType(driver)+` NOT NULL DEFAULT '',
+				[[project_id]]          `+agentStringType(driver)+` NOT NULL,
+				[[default_provider]]    `+agentStringType(driver)+` NOT NULL DEFAULT '',
+				[[default_model]]       `+agentStringType(driver)+` NOT NULL DEFAULT '',
 				[[allowed_tools]]       `+agentJsonType(driver)+`,
-				[[allow_schema_change]] `+agentTextType(driver)+` NOT NULL DEFAULT 'inherit',
-				[[approval_policy]]     `+agentTextType(driver)+` NOT NULL DEFAULT 'inherit',
+				[[allow_schema_change]] `+agentStringType(driver)+` NOT NULL DEFAULT 'inherit',
+				[[approval_policy]]     `+agentStringType(driver)+` NOT NULL DEFAULT 'inherit',
 				[[created]]             `+agentTsType(driver)+` NOT NULL,
 				[[updated]]             `+agentTsType(driver)+` NOT NULL
 			);`,
-			"CREATE INDEX IF NOT EXISTS [[idx_agent_sessions_project]] ON {{_pb_agent_sessions_}} ([[project_id]])",
-			"CREATE INDEX IF NOT EXISTS [[idx_agent_messages_session]] ON {{_pb_agent_messages_}} ([[session_id]])",
-			"CREATE INDEX IF NOT EXISTS [[idx_agent_audit_session]] ON {{_pb_agent_audit_}} ([[session_id]])",
-			"CREATE UNIQUE INDEX IF NOT EXISTS [[idx_agent_project_config]] ON {{_pb_agent_project_configs_}} ([[project_id]])",
 		)
 
 		for _, stmt := range stmts {
 			if _, err := db.NewQuery(stmt).Execute(); err != nil {
+				return err
+			}
+		}
+
+		indexes := []agentIndex{
+			{name: "idx_agent_sessions_project", table: "_pb_agent_sessions_", columns: []string{"project_id"}},
+			{name: "idx_agent_messages_session", table: "_pb_agent_messages_", columns: []string{"session_id"}},
+			{name: "idx_agent_audit_session", table: "_pb_agent_audit_", columns: []string{"session_id"}},
+			{name: "idx_agent_project_config", table: "_pb_agent_project_configs_", columns: []string{"project_id"}, unique: true},
+		}
+		for _, idx := range indexes {
+			if err := createAgentIndex(db, idx); err != nil {
 				return err
 			}
 		}
@@ -91,9 +99,16 @@ func agentIdType(driver string) string {
 	return "text"
 }
 
-func agentTextType(driver string) string {
+func agentStringType(driver string) string {
 	if driver == "mysql" {
-		return "TEXT"
+		return "VARCHAR(255)"
+	}
+	return "text"
+}
+
+func agentLongTextType(driver string) string {
+	if driver == "mysql" {
+		return "LONGTEXT"
 	}
 	return "text"
 }
@@ -133,4 +148,53 @@ func agentTsType(driver string) string {
 		return "TEXT DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now'))"
 	}
 	return "timestamp DEFAULT now()::TIMESTAMP"
+}
+
+type agentIndex struct {
+	name    string
+	table   string
+	columns []string
+	unique  bool
+}
+
+func createAgentIndex(db dbx.Builder, idx agentIndex) error {
+	if db.DriverName() == "mysql" {
+		var count int
+		err := db.NewQuery(`
+			SELECT COUNT(1)
+			FROM information_schema.statistics
+			WHERE table_schema = DATABASE()
+				AND table_name = {:table}
+				AND index_name = {:index}
+		`).Bind(dbx.Params{
+			"table": idx.table,
+			"index": idx.name,
+		}).Row(&count)
+		if err != nil {
+			return err
+		}
+		if count > 0 {
+			return nil
+		}
+	}
+
+	optional := " IF NOT EXISTS"
+	if db.DriverName() == "mysql" {
+		optional = ""
+	}
+	unique := ""
+	if idx.unique {
+		unique = "UNIQUE "
+	}
+	cols := ""
+	for i, col := range idx.columns {
+		if i > 0 {
+			cols += ", "
+		}
+		cols += "[[" + col + "]]"
+	}
+
+	stmt := "CREATE " + unique + "INDEX" + optional + " [[" + idx.name + "]] ON {{" + idx.table + "}} (" + cols + ")"
+	_, err := db.NewQuery(stmt).Execute()
+	return err
 }

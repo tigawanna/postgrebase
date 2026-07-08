@@ -112,7 +112,7 @@ func (dao *Dao) SyncRecordTableSchema(newCollection *models.Collection, oldColle
 			if driver == "mysql" {
 				indexStatements := []string{
 					fmt.Sprintf("CREATE UNIQUE INDEX _%s_username_idx ON {{%s}} ([[username]])", newCollection.Id, tableName),
-					fmt.Sprintf("CREATE UNIQUE INDEX _%s_email_idx ON {{%s}} ([[email]])", newCollection.Id, tableName),
+					fmt.Sprintf("CREATE UNIQUE INDEX _%s_email_idx ON {{%s}} ((NULLIF([[email]], '')))", newCollection.Id, tableName),
 					fmt.Sprintf("CREATE UNIQUE INDEX _%s_tokenKey_idx ON {{%s}} ([[tokenKey]])", newCollection.Id, tableName),
 				}
 				for _, s := range indexStatements {
@@ -199,8 +199,7 @@ func (dao *Dao) SyncRecordTableSchema(newCollection *models.Collection, oldColle
 			toRename[tempName] = field.Name
 
 			// add
-			_, err := dao.DB().AddColumn(newTableName, tempName, field.ColDefinition(dao.DB().DriverName())).Execute()
-			if err != nil {
+			if err := dao.addSchemaFieldColumn(newTableName, tempName, field, driver); err != nil {
 				return fmt.Errorf("failed to add column %s - %w", field.Name, err)
 			}
 		} else if oldField.Name != field.Name {
@@ -365,6 +364,13 @@ func (dao *Dao) createCollectionIndexes(collection *models.Collection) error {
 			)
 			continue
 		}
+		if dao.DB().DriverName() == "mysql" && parsed.Where != "" {
+			errs[strconv.Itoa(i)] = validation.NewError(
+				"validation_invalid_index_expression",
+				"MySQL does not support partial indexes with WHERE clauses.",
+			)
+			continue
+		}
 
 		if _, err := dao.DB().NewQuery(parsed.BuildForDriver(dao.DB().DriverName())).Execute(); err != nil {
 			errs[strconv.Itoa(i)] = validation.NewError(
@@ -381,4 +387,38 @@ func (dao *Dao) createCollectionIndexes(collection *models.Collection) error {
 
 	return nil
 
+}
+
+func (dao *Dao) addSchemaFieldColumn(tableName string, columnName string, field *schema.SchemaField, driver string) error {
+	if driver == "mysql" && isMySQLRequiredJSONField(field) {
+		if _, err := dao.DB().AddColumn(tableName, columnName, "JSON NULL").Execute(); err != nil {
+			return err
+		}
+		if _, err := dao.DB().NewQuery(fmt.Sprintf(
+			"UPDATE {{%s}} SET [[%s]] = JSON_ARRAY() WHERE [[%s]] IS NULL",
+			tableName,
+			columnName,
+			columnName,
+		)).Execute(); err != nil {
+			return err
+		}
+		_, err := dao.DB().NewQuery(fmt.Sprintf(
+			"ALTER TABLE {{%s}} MODIFY [[%s]] %s",
+			tableName,
+			columnName,
+			field.ColDefinition(driver),
+		)).Execute()
+		return err
+	}
+
+	_, err := dao.DB().AddColumn(tableName, columnName, field.ColDefinition(driver)).Execute()
+	return err
+}
+
+func isMySQLRequiredJSONField(field *schema.SchemaField) bool {
+	if field == nil || field.Type == schema.FieldTypeJson {
+		return false
+	}
+	opt, ok := field.Options.(schema.MultiValuer)
+	return ok && opt.IsMultiple()
 }

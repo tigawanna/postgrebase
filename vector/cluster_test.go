@@ -802,6 +802,69 @@ func TestCoordinatorOutdatedLeaderCannotReclaim(t *testing.T) {
 	})
 }
 
+func TestCoordinatorHeartbeatLearnsMembersAndProgress(t *testing.T) {
+	mgr := newTestManager(t)
+	c := NewCoordinator(mgr, CoordinatorConfig{
+		SelfAddr: "http://node-a",
+		Peers:    []string{"http://node-b"},
+	})
+
+	c.mu.Lock()
+	c.lastLogIndex = 5
+	c.appliedLogIndex = 5
+	c.peerNextIndex["http://node-b"] = 6
+	c.mu.Unlock()
+
+	c.ReceiveHeartbeat(Heartbeat{
+		Term:         1,
+		NodeID:       "node-b",
+		Address:      "http://node-b",
+		Members:      []string{"http://node-a", "http://node-b", "http://node-c"},
+		LastLogIndex: 2,
+	})
+
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if !containsString(c.peers, "http://node-c") {
+		t.Fatal("expected coordinator to learn http://node-c from heartbeat members")
+	}
+	if c.states["http://node-c"] == nil {
+		t.Fatal("expected learned member state to be initialized")
+	}
+	if got := c.peerNextIndex["http://node-b"]; got != 3 {
+		t.Fatalf("expected node-b next index to track heartbeat progress, got %d", got)
+	}
+	if got := c.peerNextIndex["http://node-c"]; got != 1 {
+		t.Fatalf("expected new member catch-up to start at index 1, got %d", got)
+	}
+}
+
+func TestCoordinatorAddPeerStartsCatchupFromBeginning(t *testing.T) {
+	mgr := newTestManager(t)
+	c := NewCoordinator(mgr, CoordinatorConfig{SelfAddr: "http://node-a"})
+
+	c.mu.Lock()
+	c.lastLogIndex = 10
+	c.appliedLogIndex = 10
+	c.mu.Unlock()
+
+	c.AddPeer("http://node-b")
+
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if !containsString(c.peers, "http://node-b") {
+		t.Fatal("expected peer to be added")
+	}
+	if c.states["http://node-b"] == nil {
+		t.Fatal("expected peer state to be initialized")
+	}
+	if got := c.peerNextIndex["http://node-b"]; got != 1 {
+		t.Fatalf("expected new peer to start catch-up at index 1, got %d", got)
+	}
+}
+
 type mockSnapshotApp struct {
 	createSnapshotCalled bool
 	reloadDbCalled       bool
@@ -893,4 +956,38 @@ func TestCoordinatorSnapshotGapAndJoin(t *testing.T) {
 		ca.mu.RUnlock()
 		return nextIdx == 11
 	})
+}
+
+func TestCoordinatorRejectsStaleSnapshot(t *testing.T) {
+	mgr := newTestManager(t)
+	app := &mockSnapshotApp{}
+	c := NewCoordinator(mgr, CoordinatorConfig{
+		SelfAddr: "http://node-a",
+		App:      app,
+		Apply: func(op ReplicatedOperation) error {
+			return nil
+		},
+	})
+
+	for i := uint64(1); i <= 2; i++ {
+		if _, err := c.ApplyReplicated(ReplicatedOperation{
+			LogIndex: i,
+			Kind:     ReplicatedOperationKindSQLite,
+			Type:     "record.create",
+			Strict:   true,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	err := c.InstallSnapshot("ignored.db", 1, 1, c.RaftTerm())
+	if err == nil {
+		t.Fatal("expected stale snapshot to be rejected")
+	}
+	if app.reloadDbCalled {
+		t.Fatal("stale snapshot must not replace the database")
+	}
+	if got := c.AppliedLogIndex(); got != 2 {
+		t.Fatalf("expected applied log index to remain 2, got %d", got)
+	}
 }

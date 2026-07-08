@@ -48,3 +48,14 @@ All issues have been successfully resolved, and all tests in `vector` and `repli
     *   Implemented `IsDesignatedLeader()` in `core/app.go` and `core/base.go` via a highly-efficient linear search across `nodeAddr` and `clusterPeers`, avoiding external sorting package imports.
     *   Supported the `"migration.apply"` replicated operation in `replication/operations.go`: when followers receive it, they locate the target migration from `migrations.AppMigrations`, execute its `Up` function locally within `dao.RunInTransaction`, and log it to the local `_migrations` table.
     *   Validated the entire distributed migration flow in `TestApplyMigrationReplicates` under the `replication` package, ensuring 100% schema alignment across cluster nodes.
+
+## Coordination Hardening: Membership & Snapshot Safety
+*   **Description:** Close follow-up gaps in dynamic membership propagation and snapshot installation so cluster nodes can catch up safely without accepting stale state.
+*   **Status:** Completed
+*   **Implementation:**
+    *   Wired `core.BaseApp` into `CoordinatorConfig.App` during vector initialization, enabling the existing snapshot send/install path in real SQLite cluster mode.
+    *   Updated heartbeat processing to learn all advertised `Members`, initialize peer state, and lower `peerNextIndex` from heartbeat progress so recovered peers are replayed from their actual log position.
+    *   Changed dynamic `AddPeer` initialization to start catch-up from log index `1` instead of assuming the new peer is already at the leader's latest log.
+    *   Persisted locally advanced log indices used during bootstrap fallback writes.
+    *   Added stale snapshot rejection in `InstallSnapshot()` so delayed or outdated snapshots cannot roll a follower back behind its current applied index or term.
+    *   Added unit coverage for heartbeat member learning, new-peer catch-up initialization, and stale snapshot rejection.

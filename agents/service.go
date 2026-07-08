@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	// Registers the vibecoding agent builder + provider resolution hooks.
-	_ "github.com/startvibecoding/vibecoding/bootstrap"
+	_ "github.com/startvibecoding/mothx/bootstrap"
 	"github.com/zhenruyan/postgrebase/core"
 	"github.com/zhenruyan/postgrebase/models"
 )

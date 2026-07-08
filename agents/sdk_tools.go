@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	agentsdk "github.com/startvibecoding/vibecoding/agent"
+	agentsdk "github.com/startvibecoding/mothx/agent"
 	"github.com/zhenruyan/postgrebase/tools/list"
 )
 

@@ -1253,6 +1253,7 @@ func (app *BaseApp) initVector() error {
 			Apply: func(op vector.ReplicatedOperation) error {
 				return replication.Apply(app.Dao(), op)
 			},
+			App: app,
 		})
 		app.vectorManager.AttachCoordinator(coordinator)
 		coordinator.Start()
